@@ -13,7 +13,7 @@ export default function MetroVisualizer() {
   const [trainArrivals, setTrainArrivals] = useState({});
   const [isMobileView, setIsMobileView] = useState(false);
   const [showJourneyPopup, setShowJourneyPopup] = useState(false);
-  const [viewMode, setViewMode] = useState("vertical"); // "vertical" or "map" or "perspective"
+  const [viewMode, setViewMode] = useState("vertical"); // "vertical" or "perspective" or "googlemap"
   const [focusedStation, setFocusedStation] = useState(null);
 
   // Effects
@@ -192,7 +192,7 @@ export default function MetroVisualizer() {
       return `${(distanceMeters / 1000).toFixed(1)} km`;
     }
     const startIndex = metroData.stops.findIndex((s) => s.stop_id === selectedStart);
-    const endIndex = metroData.stops.findIndex((s) => s.stop_id === selectedEnd);
+    const endIndex = metroData.stops.findIndex((s) => s.stop_id === endId);
     if (startIndex === -1 || endIndex === -1) return "N/A";
     const stations = Math.abs(endIndex - startIndex);
     const distance = (stations * 1.2).toFixed(1);
@@ -205,14 +205,12 @@ export default function MetroVisualizer() {
 
   const toggleViewMode = () => {
     if (viewMode === "vertical") {
-      setViewMode("map");
-    } else if (viewMode === "map") {
       setViewMode("perspective");
-      setSelectedStart(null);
-      setSelectedEnd(null);
       if (!focusedStation) {
         setFocusedStation(metroData.stops[0].stop_id);
       }
+    } else if (viewMode === "perspective") {
+      setViewMode("googlemap");
     } else {
       setViewMode("vertical");
     }
@@ -276,15 +274,6 @@ export default function MetroVisualizer() {
     if (startIndex < endIndex) return "calc(50% + 8px)"; // Right track (Tripunithura-bound)
     return "calc(50% - 12px)"; // Left track (Aluva-bound)
   }
-
-  // Convert coordinates to screen positions for map view
-  const mapStationPosition = (index, total) => {
-    // For vertical line
-    return {
-      x: 50, // center of container
-      y: (index / (total - 1)) * 90 + 5 // 5% to 95% of container height
-    };
-  };
 
   // Find the nearest train to the focused station
   const findNearestTrainToStation = (stationId) => {
@@ -355,8 +344,8 @@ export default function MetroVisualizer() {
             onClick={toggleViewMode}
             className={`px-3 py-2 rounded-lg ${theme.button.primary} text-white flex items-center space-x-2`}
           >
-            <span>{viewMode === "vertical" ? "🗺️" : viewMode === "map" ? "👁️" : "📊"}</span>
-            <span>{viewMode === "vertical" ? "Metro Map" : viewMode === "map" ? "Station View" : "Vertical View"}</span>
+            <span>{viewMode === "vertical" ? "👁️" : viewMode === "perspective" ? "🗺️" : "📊"}</span>
+            <span>{viewMode === "vertical" ? "Station View" : viewMode === "perspective" ? "Map View" : "Vertical View"}</span>
           </motion.button>
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -416,8 +405,23 @@ export default function MetroVisualizer() {
                   }}
                 />
               )}
+              
+              {/* Platform Labels at Top */}
+              <div className="absolute top-0 left-0 right-0 flex justify-between px-4 md:px-12 font-bold py-2">
+                <div className={`${theme.accent} flex items-center`}>
+                  <span className="mr-2">◀</span>
+                  {/* <span>Plat 1:{metroData.stops[0].stop_name}</span> */}
+                  <span>Plat 1</span>
+                </div>
+                <div className={`${theme.accent} flex items-center`}>
+                  <span>Plat 2</span>
+                  {/* <span>Plat 2:{metroData.stops[metroData.stops.length - 1].stop_name}</span> */}
+                  <span className="ml-2">▶</span>
+                </div>
+              </div>
+              
               {/* Stations */}
-              <div className="relative z-10 space-y-16 md:space-y-24 w-full">
+              <div className="relative z-10 space-y-16 md:space-y-24 w-full mt-10">
                 {metroData.stops.map((stop, index) => {
                   const isSelectedStart = selectedStart === stop.stop_id;
                   const isSelectedEnd = selectedEnd === stop.stop_id;
@@ -432,6 +436,7 @@ export default function MetroVisualizer() {
                     ? "text-orange-500"
                     : theme.text;
                   const arrival = getNextTrainArrival(stop.stop_id);
+                  const platformNumber = index % 2 === 0 ? "Platform 1" : "Platform 2";
 
                   return (
                     <div key={stop.stop_id} className="flex items-center justify-center">
@@ -445,6 +450,7 @@ export default function MetroVisualizer() {
                           >
                             <div className={`${textColor} font-semibold`}>{stop.stop_name}</div>
                             <div className={`${theme.secondary} text-xs`}>{stop.stop_id}</div>
+                            <div className={`${theme.secondary} text-xs font-medium`}>{platformNumber}</div>
                             {arrival && <div className={`text-xs mt-1 ${arrival.minutes <= 1 ? "text-red-400 animate-pulse" : "text-green-400"}`}>Next: {arrival.minutes <= 1 ? "Arriving" : `${arrival.minutes} min`}</div>}
                           </motion.div>
                         </div>
@@ -472,6 +478,7 @@ export default function MetroVisualizer() {
                           >
                             <div className={`${textColor} font-semibold`}>{stop.stop_name}</div>
                             <div className={`${theme.secondary} text-xs`}>{stop.stop_id}</div>
+                            <div className={`${theme.secondary} text-xs font-medium`}>{platformNumber}</div>
                             {arrival && <div className={`text-xs mt-1 ${arrival.minutes <= 1 ? "text-red-400 animate-pulse" : "text-green-400"}`}>Next: {arrival.minutes <= 1 ? "Arriving" : `${arrival.minutes} min`}</div>}
                           </motion.div>
                         </div>
@@ -528,181 +535,8 @@ export default function MetroVisualizer() {
               </AnimatePresence>
             </div>
           </div>
-        ) : viewMode === "map" ? (
-          // Metro Map View
-          <div className={`relative w-full max-w-5xl mx-auto ${theme.card} p-4 md:p-6 rounded-xl shadow-xl ${theme.shadow} overflow-hidden h-[600px] md:h-[700px]`}>
-            <div className="absolute inset-0 p-4">
-              {/* Main metro line */}
-              <div className="absolute h-[90%] w-4 bg-cyan-500 rounded-full z-0 left-1/2 -translate-x-1/2 top-[5%]"></div>
-              
-              {/* Path highlight for selected journey */}
-              {selectedStart && selectedEnd && (
-                <motion.div
-                  initial={{ height: "0%" }}
-                  animate={{ height: getPathHighlightBounds().height }}
-                  transition={{ duration: 1.5, ease: "easeInOut" }}
-                  className="absolute w-4 bg-yellow-400 rounded-full z-1"
-                  style={{ 
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    top: getPathHighlightBounds().top
-                  }}
-                />
-              )}
-              
-              {/* Stations */}
-              {metroData.stops.map((stop, index) => {
-                const position = mapStationPosition(index, metroData.stops.length);
-                const isSelectedStart = selectedStart === stop.stop_id;
-                const isSelectedEnd = selectedEnd === stop.stop_id;
-                const stationColor = isSelectedStart 
-                  ? "bg-green-500" 
-                  : isSelectedEnd 
-                  ? "bg-orange-500" 
-                  : "bg-cyan-700";
-                const arrival = getNextTrainArrival(stop.stop_id);
-                
-                return (
-                  <div key={stop.stop_id} className="absolute" style={{ 
-                    left: `${position.x}%`, 
-                    top: `${position.y}%`, 
-                    transform: "translate(-50%, -50%)",
-                    zIndex: 10
-                  }}>
-                    <div className="flex items-center">
-                      {/* Left Station Label */}
-                      <div className="text-right mr-3 w-[120px]">
-                        <motion.div
-                          onClick={() => handleStationClick(stop.stop_id)}
-                          whileHover={{ scale: 1.05 }}
-                          className={`inline-block cursor-pointer text-right py-1 px-2 rounded ${
-                            isSelectedStart ? "bg-green-500/20" : 
-                            isSelectedEnd ? "bg-orange-500/20" : ""
-                          }`}
-                        >
-                          <div className="font-medium text-sm">{stop.stop_name}</div>
-                          <div className="text-xs text-gray-500">{stop.stop_id}</div>
-                          {arrival && 
-                            <div className={`text-xs ${arrival.minutes <= 1 ? "text-red-400 animate-pulse" : "text-green-400"}`}>
-                              {arrival.minutes <= 1 ? "Arriving" : `${arrival.minutes}m`}
-                            </div>
-                          }
-                        </motion.div>
-                      </div>
-                      
-                      {/* Station Node */}
-                      <motion.div
-                        onClick={() => handleStationClick(stop.stop_id)}
-                        whileHover={{ scale: 1.2 }}
-                        whileTap={{ scale: 0.9 }}
-                        className={`w-8 h-8 ${stationColor} rounded-full flex items-center justify-center cursor-pointer z-20 border-2 border-gray-800`}
-                      >
-                        {isSelectedStart ? (
-                          <span className="text-sm text-white">🔸</span>
-                        ) : isSelectedEnd ? (
-                          <span className="text-sm text-white">🔹</span>
-                        ) : (
-                          <span className="w-2 h-2 bg-white rounded-full"></span>
-                        )}
-                      </motion.div>
-                      
-                      {/* Right Station Label */}
-                      <div className="ml-3 w-[120px]">
-                        <motion.div
-                          onClick={() => handleStationClick(stop.stop_id)}
-                          whileHover={{ scale: 1.05 }}
-                          className={`inline-block cursor-pointer text-left py-1 px-2 rounded ${
-                            isSelectedStart ? "bg-green-500/20" : 
-                            isSelectedEnd ? "bg-orange-500/20" : ""
-                          }`}
-                        >
-                          <div className="font-medium text-sm">{index % 2 === 0 ? "Platform " + (index + 1) : ""}</div>
-                          <div className="text-xs text-gray-500">
-                            {arrival && (
-                              <span className={arrival.minutes <= 1 ? "text-red-400 animate-pulse" : "text-green-400"}>
-                                {arrival.minutes <= 1 ? "Arriving" : `${arrival.minutes}m`}
-                              </span>
-                            )}
-                          </div>
-                        </motion.div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              
-              {/* Animated Trains */}
-              <AnimatePresence>
-                {activeTrips.map((trip) => {
-                  const stationCount = metroData.stops.length;
-                  const currentStopIndex = findStationIndex(trip.positionData.currentStop);
-                  const nextStopIndex = findStationIndex(trip.positionData.nextStop);
-                  const progress = trip.positionData.progress || 0;
-                  
-                  // Calculate position along the line
-                  const currentPos = mapStationPosition(currentStopIndex, stationCount);
-                  const nextPos = mapStationPosition(nextStopIndex, stationCount);
-                  
-                  const yPos = currentPos.y + progress * (nextPos.y - currentPos.y);
-                  
-                  // Offset x position based on direction
-                  const xOffset = trip.direction_id === 0 ? 2 : -2; // pixel offset
-                  
-                  return (
-                    <motion.div
-                      key={trip.trip_id}
-                      className="absolute z-30"
-                      style={{ 
-                        left: `calc(${currentPos.x}% ${xOffset > 0 ? `+${xOffset}px` : ''+xOffset+'px'})`,   
-                        top: `${yPos}%`,
-                        transform: "translate(-50%, -50%)",
-                        width: "30px",
-                        height: "16px"
-                      }}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.5 }}
-                    >
-                      {/* Train visualization */}
-                      <div className={`relative ${
-                        trip.direction_id === 0
-                          ? "bg-gradient-to-r from-blue-500 to-blue-700"
-                          : "bg-gradient-to-r from-purple-500 to-purple-700"
-                      } rounded-md w-full h-full flex items-center justify-center border border-white/30`}>
-                        {/* Train windows */}
-                        <div className="absolute inset-y-1 mx-1 flex space-x-0.5">
-                          <div className="w-1 h-2 bg-yellow-100/80 rounded-sm"></div>
-                          <div className="w-1 h-2 bg-yellow-100/80 rounded-sm"></div>
-                          <div className="w-1 h-2 bg-yellow-100/80 rounded-sm"></div>
-                        </div>
-                        
-                        {/* Train ID */}
-                        <div className={`absolute ${trip.direction_id === 0 ? "-top-6" : "-bottom-6"} bg-black/70 px-1 py-0.5 rounded text-xs text-white whitespace-nowrap`}>
-                          {trip.trip_id}
-                        </div>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            
-              {/* Map Legend */}
-              <div className="absolute bottom-4 right-4 bg-black/60 p-2 rounded-lg z-20">
-                <div className="text-sm font-semibold mb-1">Legend</div>
-                <div className="flex items-center gap-2 text-xs">
-                  <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                  <div>To {metroData.stops[metroData.stops.length - 1].stop_name}</div>
-                </div>
-                <div className="flex items-center gap-2 text-xs mt-1">
-                  <div className="w-3 h-3 rounded-full bg-purple-500"></div>
-                  <div>To {metroData.stops[0].stop_name}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          // Perspective Station View
+        ) : viewMode === "perspective" ? (
+          // Station Perspective View
           <div className={`relative w-full max-w-4xl mx-auto ${theme.card} p-4 md:p-6 rounded-xl shadow-xl ${theme.shadow} overflow-hidden flex flex-col h-[500px] md:h-[600px]`}>
             {/* Station Selection Navbar */}
             <div className="flex items-center justify-between mb-4 overflow-x-auto pb-2 no-scrollbar">
@@ -1136,6 +970,203 @@ export default function MetroVisualizer() {
                   </span>
                 )}
               </div>
+            </div>
+          </div>
+        ) : (
+          // Google Maps-Style View
+          <div className={`relative w-full max-w-5xl mx-auto ${theme.card} p-4 md:p-6 rounded-xl shadow-xl ${theme.shadow} overflow-hidden h-[600px] md:h-[700px]`}>
+            <div className="absolute inset-0">
+              {/* Map background with subtle grid */}
+              <div className={`absolute inset-0 ${isDarkMode ? 'bg-gray-800' : 'bg-blue-50'} overflow-hidden`}>
+                {/* Grid lines */}
+                <div className="absolute inset-0" style={{ 
+                  backgroundImage: `linear-gradient(to right, ${isDarkMode ? 'rgba(75, 85, 99, 0.1)' : 'rgba(59, 130, 246, 0.1)'} 1px, transparent 1px), 
+                                    linear-gradient(to bottom, ${isDarkMode ? 'rgba(75, 85, 99, 0.1)' : 'rgba(59, 130, 246, 0.1)'} 1px, transparent 1px)`,
+                  backgroundSize: '20px 20px'
+                }}></div>
+                
+                {/* Main roads */}
+                <div className={`absolute top-1/4 left-0 right-0 h-3 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`}></div>
+                <div className={`absolute top-2/3 left-0 right-0 h-4 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`}></div>
+                <div className={`absolute bottom-1/4 left-0 right-0 h-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`}></div>
+                <div className={`absolute left-1/3 top-0 bottom-0 w-3 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`}></div>
+                <div className={`absolute right-1/4 top-0 bottom-0 w-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`}></div>
+                
+                {/* Map labels */}
+                <div className={`absolute top-8 left-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs font-mono`}>Ernakulam</div>
+                <div className={`absolute bottom-8 right-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs font-mono`}>Aluva</div>
+                <div className={`absolute top-1/3 right-12 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs font-mono`}>Kakkanad</div>
+                <div className={`absolute bottom-1/3 left-12 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs font-mono`}>Edappally</div>
+                
+                {/* Water bodies */}
+                <div className={`absolute top-12 left-12 w-40 h-24 rounded-full ${isDarkMode ? 'bg-blue-900/30' : 'bg-blue-300/30'} blur-md`}></div>
+                <div className={`absolute bottom-12 right-12 w-32 h-32 rounded-full ${isDarkMode ? 'bg-blue-900/30' : 'bg-blue-300/30'} blur-md`}></div>
+              </div>
+              
+              {/* Metro line overlay */}
+              <div className={`absolute h-2 ${theme.line} z-10 rounded-full`} style={{
+                top: '40%',
+                left: '10%',
+                right: '10%',
+                transformOrigin: 'center',
+                transform: 'rotate(-5deg)'
+              }}></div>
+              
+              {/* Stations on map */}
+              {metroData.stops.map((stop, index) => {
+                const isSelectedStart = selectedStart === stop.stop_id;
+                const isSelectedEnd = selectedEnd === stop.stop_id;
+                
+                // Position stations along the diagonal line
+                const xPos = 10 + (80 * index / (metroData.stops.length - 1));
+                const yPos = 40 + (index % 2 === 0 ? -2 : 2); // slight offset for visual interest
+                
+                const stationColor = isSelectedStart 
+                  ? "bg-green-500" 
+                  : isSelectedEnd 
+                  ? "bg-orange-500" 
+                  : "bg-cyan-600";
+                
+                const arrival = getNextTrainArrival(stop.stop_id);
+                
+                return (
+                  <div key={stop.stop_id} className="absolute z-20" style={{
+                    left: `${xPos}%`,
+                    top: `${yPos}%`
+                  }}>
+                    <motion.div
+                      whileHover={{ scale: 1.2 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => handleStationClick(stop.stop_id)}
+                      className={`w-5 h-5 ${stationColor} rounded-full flex items-center justify-center cursor-pointer shadow-lg border-2 ${isDarkMode ? 'border-gray-900' : 'border-white'}`}
+                    />
+                    
+                    {/* Station tooltip */}
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      whileHover={{ opacity: 1, y: 0 }}
+                      className={`absolute -bottom-16 left-1/2 -translate-x-1/2 w-36 ${isDarkMode ? 'bg-gray-900' : 'bg-white'} p-2 rounded-lg shadow-lg z-30 text-center`}
+                    >
+                      <div className="font-semibold text-sm">{stop.stop_name}</div>
+                      <div className={`${theme.secondary} text-xs`}>
+                        Platform {(index % 2) + 1}
+                      </div>
+                      {arrival && (
+                        <div className={`text-xs mt-1 ${arrival.minutes <= 1 ? "text-red-400 animate-pulse" : "text-green-400"}`}>
+                          Next: {arrival.minutes <= 1 ? "Arriving" : `${arrival.minutes}m`}
+                        </div>
+                      )}
+                    </motion.div>
+                  </div>
+                );
+              })}
+              
+              {/* Active trains */}
+              <AnimatePresence>
+                {activeTrips.map((trip) => {
+                  const stationCount = metroData.stops.length;
+                  const currentStopIndex = findStationIndex(trip.positionData.currentStop);
+                  const nextStopIndex = findStationIndex(trip.positionData.nextStop);
+                  
+                  // Calculate position along the line
+                  const progress = trip.positionData.progress || 0;
+                  const currentXPos = 10 + (80 * currentStopIndex / (stationCount - 1));
+                  const nextXPos = 10 + (80 * nextStopIndex / (stationCount - 1));
+                  const currentYPos = 40 + (currentStopIndex % 2 === 0 ? -2 : 2);
+                  const nextYPos = 40 + (nextStopIndex % 2 === 0 ? -2 : 2);
+                  
+                  const xPos = currentXPos + progress * (nextXPos - currentXPos);
+                  const yPos = currentYPos + progress * (nextYPos - currentYPos);
+                  
+                  return (
+                    <motion.div
+                      key={trip.trip_id}
+                      className="absolute z-30"
+                      style={{ 
+                        left: `${xPos}%`,
+                        top: `${yPos}%`,
+                        transform: 'translate(-50%, -50%)'
+                      }}
+                    >
+                      {/* Train visualization */}
+                      <div 
+                        className={`w-6 h-3 ${
+                          trip.direction_id === 0
+                            ? "bg-gradient-to-r from-blue-500 to-blue-700"
+                            : "bg-gradient-to-r from-purple-500 to-purple-700"
+                        } rounded-sm shadow-md flex items-center justify-center`}
+                      >
+                        <div className="w-1 h-1 bg-white rounded-full"></div>
+                      </div>
+                      
+                      {/* Train ID tooltip */}
+                      <div className="absolute -top-5 left-1/2 -translate-x-1/2 bg-black/70 px-1 py-0.5 rounded text-[8px] text-white whitespace-nowrap">
+                        {trip.trip_id}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+              
+              {/* Map Controls */}
+              <div className="absolute top-4 right-4 flex flex-col space-y-2">
+                <button className={`w-8 h-8 ${theme.button.secondary} rounded-lg flex items-center justify-center shadow-lg`}>
+                  <span>+</span>
+                </button>
+                <button className={`w-8 h-8 ${theme.button.secondary} rounded-lg flex items-center justify-center shadow-lg`}>
+                  <span>-</span>
+                </button>
+              </div>
+              
+              {/* Map Legend */}
+              <div className="absolute bottom-4 left-4 bg-black/60 p-2 rounded-lg z-20 text-xs">
+                <div className="font-semibold mb-1">Legend</div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                  <div>To {metroData.stops[metroData.stops.length - 1].stop_name}</div>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="w-3 h-3 rounded-full bg-purple-500"></div>
+                  <div>To {metroData.stops[0].stop_name}</div>
+                </div>
+                <div className="flex items-center gap-2 mt-2 border-t border-gray-600 pt-1">
+                  <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                  <div>Selected start</div>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="w-3 h-3 rounded-full bg-orange-500"></div>
+                  <div>Selected destination</div>
+                </div>
+              </div>
+              
+              {/* Path details when stations are selected */}
+              {selectedStart && selectedEnd && (
+                <div className="absolute top-4 left-4 bg-black/60 p-2 rounded-lg z-20 max-w-xs">
+                  <div className="font-semibold text-sm mb-1">Journey</div>
+                  <div className="text-xs flex gap-2 items-center">
+                    <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                    <div>{metroData.stops.find(s => s.stop_id === selectedStart)?.stop_name}</div>
+                  </div>
+                  <div className="text-xs flex gap-2 items-center mt-1">
+                    <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                    <div>{metroData.stops.find(s => s.stop_id === selectedEnd)?.stop_name}</div>
+                  </div>
+                  <div className="text-xs mt-2 grid grid-cols-3 gap-2">
+                    <div>
+                      <div className="opacity-70">Fare</div>
+                      <div className="font-semibold">{getFare(selectedStart, selectedEnd)}</div>
+                    </div>
+                    <div>
+                      <div className="opacity-70">Distance</div>
+                      <div className="font-semibold">{getDistanceBetweenStations()}</div>
+                    </div>
+                    <div>
+                      <div className="opacity-70">Time</div>
+                      <div className="font-semibold">{getEstimatedTime()}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
