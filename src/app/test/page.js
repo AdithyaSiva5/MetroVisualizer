@@ -2,47 +2,57 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import metroData from "../../../data/metroData.json";
+import metroData from "../../../data/genData.json";
 
 export default function MetroVisualizer() {
-  const [currentTime, setCurrentTime] = useState(() => new Date("2025-04-07T17:00:00Z")); // 10:30 PM IST (adjust to 10:47 PM)
+  const [currentTime, setCurrentTime] = useState(() => {
+    // Use a static initial value to avoid SSR mismatch
+    return "Loading...";
+  });
   const [selectedStart, setSelectedStart] = useState(null);
   const [selectedEnd, setSelectedEnd] = useState(null);
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    // Start timer only on client after mount
+    const timer = setInterval(() => {
+      setCurrentTime(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    }, 1000);
+    // Set initial time on client mount
+    setCurrentTime(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
     return () => clearInterval(timer);
-  }, []);
+  }, []); // Empty dependency array to run once on mount
 
   const isMetroClosed = () => {
-    const istTime = new Date(currentTime.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    if (currentTime === "Loading...") return false; // Safe default during load
+    const istTime = new Date(currentTime);
     const hours = istTime.getHours();
-    const minutes = istTime.getMinutes();
-    const totalMinutes = hours * 60 + minutes;
-    const startTime = 22 * 60; // 10:00 PM in minutes
-    const endTime = 1 * 60 + 25; // 1:25 AM in minutes
-    // Adjust for day rollover
-    return totalMinutes < startTime && totalMinutes > endTime;
+    return hours >= 23 || hours < 5;
   };
 
   const getMetroPosition = (trip) => {
-    const istTime = new Date(currentTime.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    if (currentTime === "Loading...") return null; // Avoid calculation during load
+    const istTime = new Date(currentTime);
     const currentSeconds = istTime.getHours() * 3600 + istTime.getMinutes() * 60 + istTime.getSeconds();
 
-    const stopTimes = metroData.stop_times.filter((st) => st.trip_id === trip.trip_id);
-    stopTimes.sort((a, b) => a.stop_sequence - b.stop_sequence);
+    const stopTimes = metroData.stop_times
+      .filter((st) => st.trip_id === trip.trip_id)
+      .sort((a, b) => a.stop_sequence - b.stop_sequence);
+
+    const baseTripDurationSeconds = 75 * 60; // Match with JSON
+    const firstDeparture = timeToSeconds(stopTimes[0].departure_time);
+    if (currentSeconds - firstDeparture > baseTripDurationSeconds) return null; // Trip too old
 
     for (let i = 0; i < stopTimes.length - 1; i++) {
       const startTime = timeToSeconds(stopTimes[i].departure_time);
-      const endTime = timeToSeconds(stopTimes[i + 1].arrival_time);
-      if (currentSeconds >= startTime && currentSeconds <= endTime) {
+      const endTime = timeToSeconds(stopTimes[i + 1].departure_time);
+      if (currentSeconds >= startTime && currentSeconds < endTime) {
         const progress = (currentSeconds - startTime) / (endTime - startTime);
-        const startIndex = stopTimes[i].stop_sequence - 1;
-        const endIndex = stopTimes[i + 1].stop_sequence - 1;
-        return startIndex + progress * (endIndex - startIndex);
+        const startDistance = stopTimes[i].shape_dist_traveled;
+        const endDistance = stopTimes[i + 1].shape_dist_traveled;
+        return startDistance + progress * (endDistance - startDistance);
       }
     }
-    return null;
+    return null; // At terminal or invalid
   };
 
   const timeToSeconds = (timeStr) => {
@@ -70,49 +80,71 @@ export default function MetroVisualizer() {
     }
   };
 
+  const handleClearSelection = () => {
+    setSelectedStart(null);
+    setSelectedEnd(null);
+  };
+
+  const totalRouteDistance = metroData.stop_times
+    .filter((st) => st.trip_id === "T1" && st.stop_sequence === metroData.stops.length)
+    .map((st) => st.shape_dist_traveled)[0] || 28000;
+
+  const activeTrips = metroData.trips.map((trip) => getMetroPosition(trip)).filter((pos) => pos !== null);
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white flex flex-col items-center justify-center p-6">
       <h1 className="text-4xl font-bold mb-8 text-cyan-400">Kochi Metro Live Tracker</h1>
 
       {isMetroClosed() ? (
         <div className="text-2xl font-semibold text-red-500 animate-pulse">
-          Metro Closed (Outside 10:00 PM - 1:25 AM)
+          Metro Closed (11 PM - 5 AM)
+        </div>
+      ) : activeTrips.length === 0 ? (
+        <div className="text-2xl font-semibold text-yellow-500 animate-pulse">
+          No Trains Running Right Now
         </div>
       ) : (
-        <div className="w-full max-w-5xl">
+        <div className="w-full max-w-6xl relative">
           <div className="relative flex items-center justify-between">
-            <div className="absolute w-full h-1 bg-cyan-500 rounded-full" />
+            <div className="absolute w-full h-2 bg-cyan-500 rounded-full z-0" />
             {metroData.stops.map((stop) => (
-              <div key={stop.stop_id} className="relative z-10 flex flex-col items-center">
+              <div
+                key={stop.stop_id}
+                className="relative z-10 flex flex-col items-center"
+                style={{ minWidth: `${100 / metroData.stops.length}%` }}
+              >
                 <motion.div
-                  className={`w-4 h-4 rounded-full cursor-pointer ${
-                    selectedStart === stop.stop_id
+                  className={`w-5 h-5 rounded-full cursor-pointer flex items-center justify-center ${
+                    selectedStart === stop.stop_id || selectedEnd === stop.stop_id
                       ? "bg-yellow-400"
-                      : selectedEnd === stop.stop_id
-                      ? "bg-green-400"
                       : "bg-cyan-500"
                   }`}
-                  whileHover={{ scale: 1.5 }}
+                  whileHover={{ scale: 1.2 }}
                   onClick={() => handleStationClick(stop.stop_id)}
-                />
-                <span className="text-sm mt-2 text-center">{stop.stop_name}</span>
+                >
+                  <span className="text-xs">🚉</span>
+                </motion.div>
+                <span className="text-sm mt-2 text-center whitespace-nowrap">{stop.stop_name}</span>
               </div>
             ))}
             <AnimatePresence>
               {metroData.trips.map((trip) => {
                 const position = getMetroPosition(trip);
                 if (position === null) return null;
-                const totalStops = metroData.stops.length;
-                const percentage = (position / (totalStops - 1)) * 100;
+                const percentage = (position / totalRouteDistance) * 100;
 
                 return (
                   <motion.div
                     key={trip.trip_id}
-                    className="absolute w-6 h-6 bg-gradient-to-r from-cyan-400 to-blue-600 rounded-full flex items-center justify-center text-xs font-bold"
-                    style={{ left: `${percentage}%`, top: "-10px" }}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
+                    className={`absolute w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      trip.direction_id === 0
+                        ? "bg-gradient-to-r from-cyan-400 to-blue-600"
+                        : "bg-gradient-to-r from-purple-400 to-pink-600"
+                    }`}
+                    style={{ left: `${percentage}%`, top: trip.direction_id === 0 ? "-20px" : "20px" }}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
                     transition={{ duration: 0.5 }}
                   >
                     🚇
@@ -124,11 +156,11 @@ export default function MetroVisualizer() {
 
           {selectedStart && selectedEnd && (
             <motion.div
-              className="mt-8 p-4 bg-gray-800 rounded-lg shadow-lg"
+              className="mt-8 p-6 bg-gray-800 rounded-lg shadow-lg flex flex-col items-center max-w-md mx-auto"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <p className="text-lg">
+              <p className="text-lg text-center">
                 Fare from{" "}
                 <span className="font-bold">
                   {metroData.stops.find((s) => s.stop_id === selectedStart).stop_name}
@@ -140,11 +172,8 @@ export default function MetroVisualizer() {
                 : <span className="text-cyan-400">{getFare(selectedStart, selectedEnd)}</span>
               </p>
               <button
-                className="mt-2 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-                onClick={() => {
-                  setSelectedStart(null);
-                  setSelectedEnd(null);
-                }}
+                onClick={handleClearSelection}
+                className="mt-4 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition duration-300"
               >
                 Clear Selection
               </button>
@@ -153,8 +182,8 @@ export default function MetroVisualizer() {
         </div>
       )}
 
-      <p className="mt-4 text-sm text-gray-400">
-        Current Time (IST): {currentTime.toLocaleString("en-US", { timeZone: "Asia/Kolkata" })}
+      <p className="mt-6 text-sm text-gray-400">
+        Current Time (IST): {currentTime}
       </p>
     </div>
   );
